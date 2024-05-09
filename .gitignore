@@ -1,0 +1,15 @@
+/target
+Cargo.lock
+
+# Circom generated files
+circuit/keccak-chain_js
+node_modules
+package-lock.json
+*.r1cs
+*.sym
+
+# generated contracts at test time
+generated
+*.sol
+*.calldata
+*.inputs
