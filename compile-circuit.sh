@@ -9,4 +9,4 @@ cd circuit
 npm install
 cd ..
 
-circom ./circuit/keccak-chain.circom --O0 --r1cs --sym --wasm --prime bn128 --output ./circuit/
+circom ./circuit/keccak-chain.circom --r1cs --sym --wasm --prime bn128 --output ./circuit/

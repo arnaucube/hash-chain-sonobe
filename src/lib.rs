@@ -19,6 +19,7 @@ mod tests {
     use ark_groth16::{Groth16, ProvingKey, VerifyingKey as G16VerifierKey};
     use ark_poly_commit::kzg10::VerifierKey as KZGVerifierKey;
 
+    use ark_ff::{BigInteger, BigInteger256, PrimeField};
     use ark_std::Zero;
 
     use std::path::PathBuf;
@@ -118,6 +119,34 @@ mod tests {
         (fs_prover_params, kzg_vk, g16_pk, g16_vk)
     }
 
+    fn f_vec_to_bits<F: PrimeField>(v: Vec<F>) -> Vec<bool> {
+        v.iter()
+            .map(|v_i| {
+                if v_i.is_one() {
+                    return true;
+                }
+                return false;
+            })
+            .collect()
+    }
+    // returns the bytes representation of the given vector of finite field elements that represent
+    // bits
+    fn f_vec_to_bytes<F: PrimeField>(v: Vec<F>) -> Vec<u8> {
+        let b = f_vec_to_bits(v);
+        BigInteger256::from_bits_le(&b).to_bytes_le()
+    }
+
+    // function to compute the next state of the folding via rust-native code (not Circom). Used to
+    // check the Circom values.
+    use tiny_keccak::{Hasher, Keccak};
+    fn rust_native_step(z_i: [u8; 32]) -> [u8; 32] {
+        let mut h = Keccak::v256();
+        h.update(&z_i);
+        let mut z_i1 = [0u8; 32];
+        h.finalize(&mut z_i1);
+        z_i1
+    }
+
     #[test]
     fn full_flow() {
         // set the initial state
@@ -149,13 +178,45 @@ mod tests {
         >;
 
         // initialize the folding scheme engine, in our case we use Nova
-        let mut nova = NOVA::init(&fs_prover_params, f_circuit.clone(), z_0).unwrap();
+        let mut nova = NOVA::init(&fs_prover_params, f_circuit.clone(), z_0.clone()).unwrap();
         // run n steps of the folding iteration
-        for i in 0..10 {
+        for _ in 0..3 {
             let start = Instant::now();
             nova.prove_step(vec![]).unwrap();
-            println!("Nova::prove_step {}: {:?}", i, start.elapsed());
+            println!("Nova::prove_step {}: {:?}", nova.i, start.elapsed());
         }
+
+        // perform the hash chain natively in rust
+        let z_0_bytes: [u8; 32] = [0u8; 32];
+        let z_1_bytes = rust_native_step(z_0_bytes);
+        let z_2_bytes = rust_native_step(z_1_bytes);
+        let z_3_bytes = rust_native_step(z_2_bytes);
+
+        // check that the value of the last folding state (nova.z_i) computed through folding, is equal to the natively
+        // computed hash using the rust_native_step method
+        let nova_z_i = f_vec_to_bytes(nova.z_i.clone());
+        assert_eq!(nova_z_i, z_3_bytes);
+
+        /*
+        // The following lines contain a sanity check that checks the IVC proof (before going into
+        // the zkSNARK proof)
+        let verifier_params = VerifierParams::<G1, G2> {
+            poseidon_config: nova.poseidon_config.clone(),
+            r1cs: nova.clone().r1cs,
+            cf_r1cs: nova.clone().cf_r1cs,
+        };
+        let (running_instance, incoming_instance, cyclefold_instance) = nova.instances();
+        NOVA::verify(
+            verifier_params,
+            z_0,
+            nova.z_i.clone(),
+            nova.i,
+            running_instance,
+            incoming_instance,
+            cyclefold_instance,
+        )
+        .unwrap();
+         */
 
         let rng = rand::rngs::OsRng;
         let start = Instant::now();
@@ -180,7 +241,7 @@ mod tests {
         assert!(verified);
         println!("Decider proof verification: {}", verified);
 
-        // Now, let's generate the Solidity code that verifies this Decider final proof
+        // generate the Solidity code that verifies this Decider final proof
         let function_selector =
             get_function_selector_for_nova_cyclefold_verifier(nova.z_0.len() * 2 + 1);
 
