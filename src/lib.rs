@@ -164,6 +164,9 @@ mod tests {
 
     #[test]
     fn full_flow() {
+        // set how many steps of folding we want to compute
+        let n_steps = 10;
+
         // set the initial state
         let z_0_aux: Vec<u32> = vec![0_u32; 32 * 8];
         let z_0: Vec<Fr> = z_0_aux.iter().map(|v| Fr::from(*v)).collect::<Vec<Fr>>();
@@ -218,19 +221,20 @@ mod tests {
         // initialize the folding scheme engine, in our case we use Nova
         let mut nova = NOVA::init(&fs_prover_params, f_circuit.clone(), z_0.clone()).unwrap();
         // run n steps of the folding iteration
-        for _ in 0..3 {
+        for _ in 0..n_steps {
             let start = Instant::now();
             nova.prove_step(vec![]).unwrap();
             println!("Nova::prove_step {}: {:?}", nova.i, start.elapsed());
         }
 
         // perform the hash chain natively in rust (which uses a rust Keccak256 library)
-        let z_1 = rust_native_step(0, z_0.clone(), vec![]).unwrap();
-        let z_2 = rust_native_step(0, z_1, vec![]).unwrap();
-        let z_3 = rust_native_step(0, z_2, vec![]).unwrap();
+        let mut z_i_native = z_0.clone();
+        for i in 0..n_steps {
+            z_i_native = rust_native_step(i, z_i_native.clone(), vec![]).unwrap();
+        }
         // check that the value of the last folding state (nova.z_i) computed through folding, is
         // equal to the natively computed hash using the rust_native_step method
-        assert_eq!(nova.z_i, z_3);
+        assert_eq!(nova.z_i, z_i_native);
 
         // ----------------
         // Sanity check

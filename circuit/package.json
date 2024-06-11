@@ -1,7 +1,7 @@
 {
-  "name": "fakeid-demo",
+  "name": "keccak-chain-circuit",
   "version": "0.0.1",
-  "description": "iden3 circuits",
+  "description": "Sonobe Circom circuit to prove a Keccak256 chain",
   "main": "index.js",
   "scripts": {
     "clean": "rm -fR dist",

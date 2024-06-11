@@ -24,6 +24,10 @@ ark-crypto-primitives = { version = "^0.4.0", default-features = false, features
 ark-std = "0.4.0"
 color-eyre = "0.6.2"
 num-bigint = "0.4.3"
+# Note: for testing purposes we use the 'light-test' feature when importing
+# Sonobe's folding-schemes, but for a real-world usage it must be used without
+# this feature (but then the DeciderETH circuit is bigger and takes more time
+# to compute).
 folding-schemes = { git = "https://github.com/privacy-scaling-explorations/sonobe", package = "folding-schemes", features=["light-test"]}
 solidity-verifiers = { git = "https://github.com/privacy-scaling-explorations/sonobe", package = "solidity-verifiers"}
 serde = "1.0.198"
