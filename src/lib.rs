@@ -23,6 +23,7 @@ mod tests {
     use ark_std::Zero;
 
     use std::path::PathBuf;
+    use std::rc::Rc;
     use std::time::Instant;
 
     use folding_schemes::{
@@ -37,11 +38,10 @@ mod tests {
             get_r1cs, Nova, ProverParams, VerifierParams,
         },
         frontend::{circom::CircomFCircuit, FCircuit},
-        transcript::poseidon::poseidon_test_config,
-        Decider, FoldingScheme,
+        transcript::poseidon::poseidon_canonical_config,
+        Decider, Error, FoldingScheme,
     };
     use solidity_verifiers::{
-        evm::{compile_solidity, Evm},
         utils::get_function_selector_for_nova_cyclefold_verifier,
         verifiers::nova_cyclefold::get_decider_template_for_cyclefold_decider,
         NovaCycleFoldVerifierKey,
@@ -59,7 +59,7 @@ mod tests {
         KZGVerifierKey<Bn254>,
     ) {
         let mut rng = ark_std::test_rng();
-        let poseidon_config = poseidon_test_config::<Fr>();
+        let poseidon_config = poseidon_canonical_config::<Fr>();
 
         // get the CM & CF_CM len
         let (r1cs, cf_r1cs) =
@@ -135,16 +135,31 @@ mod tests {
         let b = f_vec_to_bits(v);
         BigInteger256::from_bits_le(&b).to_bytes_le()
     }
+    fn bytes_to_f_vec<F: PrimeField>(b: Vec<u8>) -> Result<Vec<F>, Error> {
+        use num_bigint::BigUint;
+        let bi = BigUint::from_bytes_le(&b);
+        let bi = BigInteger256::try_from(bi).unwrap();
+        let bits = bi.to_bits_le();
+        Ok(bits
+            .iter()
+            .map(|&e| if e == true { F::one() } else { F::zero() })
+            .collect())
+    }
 
     // function to compute the next state of the folding via rust-native code (not Circom). Used to
     // check the Circom values.
     use tiny_keccak::{Hasher, Keccak};
-    fn rust_native_step(z_i: [u8; 32]) -> [u8; 32] {
+    fn rust_native_step<F: PrimeField>(
+        _i: usize,
+        z_i: Vec<F>,
+        _external_inputs: Vec<F>,
+    ) -> Result<Vec<F>, Error> {
+        let b = f_vec_to_bytes(z_i.to_vec());
         let mut h = Keccak::v256();
-        h.update(&z_i);
+        h.update(&b);
         let mut z_i1 = [0u8; 32];
         h.finalize(&mut z_i1);
-        z_i1
+        bytes_to_f_vec(z_i1.to_vec())
     }
 
     #[test]
@@ -158,7 +173,30 @@ mod tests {
         let wasm_path = PathBuf::from("./circuit/keccak-chain_js/keccak-chain.wasm");
 
         let f_circuit_params = (r1cs_path, wasm_path, 32 * 8, 0);
-        let f_circuit = CircomFCircuit::<Fr>::new(f_circuit_params).unwrap();
+        let mut f_circuit = CircomFCircuit::<Fr>::new(f_circuit_params).unwrap();
+        // Note (optional): for more speed, we can set a custom rust-native logic, which will be
+        // used for the `step_native` method instead of extracting the values from the circom
+        // witness:
+        f_circuit.set_custom_step_native(Rc::new(rust_native_step));
+
+        // ----------------
+        // Sanity check
+        // check that the f_circuit produces valid R1CS constraints
+        use ark_r1cs_std::alloc::AllocVar;
+        use ark_r1cs_std::fields::fp::FpVar;
+        use ark_r1cs_std::R1CSVar;
+        use ark_relations::r1cs::ConstraintSystem;
+        let cs = ConstraintSystem::<Fr>::new_ref();
+        let z_0_var = Vec::<FpVar<Fr>>::new_witness(cs.clone(), || Ok(z_0.clone())).unwrap();
+        let z_1_var = f_circuit
+            .generate_step_constraints(cs.clone(), 1, z_0_var, vec![])
+            .unwrap();
+        // check z_1_var against the native z_1
+        let z_1_native = f_circuit.step_native(1, z_0.clone(), vec![]).unwrap();
+        assert_eq!(z_1_var.value().unwrap(), z_1_native);
+        // check that the constraint system is satisfied
+        assert!(cs.is_satisfied().unwrap());
+        // ----------------
 
         let (fs_prover_params, kzg_vk, g16_pk, g16_vk) =
             init_ivc_and_decider_params::<CircomFCircuit<Fr>>(f_circuit.clone());
@@ -186,18 +224,16 @@ mod tests {
             println!("Nova::prove_step {}: {:?}", nova.i, start.elapsed());
         }
 
-        // perform the hash chain natively in rust
-        let z_0_bytes: [u8; 32] = [0u8; 32];
-        let z_1_bytes = rust_native_step(z_0_bytes);
-        let z_2_bytes = rust_native_step(z_1_bytes);
-        let z_3_bytes = rust_native_step(z_2_bytes);
+        // perform the hash chain natively in rust (which uses a rust Keccak256 library)
+        let z_1 = rust_native_step(0, z_0.clone(), vec![]).unwrap();
+        let z_2 = rust_native_step(0, z_1, vec![]).unwrap();
+        let z_3 = rust_native_step(0, z_2, vec![]).unwrap();
+        // check that the value of the last folding state (nova.z_i) computed through folding, is
+        // equal to the natively computed hash using the rust_native_step method
+        assert_eq!(nova.z_i, z_3);
 
-        // check that the value of the last folding state (nova.z_i) computed through folding, is equal to the natively
-        // computed hash using the rust_native_step method
-        let nova_z_i = f_vec_to_bytes(nova.z_i.clone());
-        assert_eq!(nova_z_i, z_3_bytes);
-
-        /*
+        // ----------------
+        // Sanity check
         // The following lines contain a sanity check that checks the IVC proof (before going into
         // the zkSNARK proof)
         let verifier_params = VerifierParams::<G1, G2> {
@@ -216,7 +252,7 @@ mod tests {
             cyclefold_instance,
         )
         .unwrap();
-         */
+        // ----------------
 
         let rng = rand::rngs::OsRng;
         let start = Instant::now();
@@ -263,24 +299,35 @@ mod tests {
         // generate the solidity code
         let decider_solidity_code = get_decider_template_for_cyclefold_decider(nova_cyclefold_vk);
 
+        /*
+         * Note: since we're proving the Keccak256 (ie. 32 byte size, 256 bits), the number of
+         * inputs is too big for the contract. In a real world use case we would convert the binary
+         * representation into a couple of field elements which would be inputs of the Decider
+         * circuit, and in-circuit we would obtain the binary representation to be used for the
+         * final proof check.
+         *
+         * The following code is commented out for that reason.
         // verify the proof against the solidity code in the EVM
+        use solidity_verifiers::evm::{compile_solidity, Evm};
         let nova_cyclefold_verifier_bytecode =
             compile_solidity(&decider_solidity_code, "NovaDecider");
         let mut evm = Evm::default();
         let verifier_address = evm.create(nova_cyclefold_verifier_bytecode);
         let (_, output) = evm.call(verifier_address, calldata.clone());
         assert_eq!(*output.last().unwrap(), 1);
+         */
 
         // save smart contract and the calldata
         println!("storing nova-verifier.sol and the calldata into files");
         use std::fs;
+        fs::create_dir_all("./solidity").unwrap();
         fs::write(
-            "./examples/nova-verifier.sol",
+            "./solidity/nova-verifier.sol",
             decider_solidity_code.clone(),
         )
         .unwrap();
-        fs::write("./examples/solidity-calldata.calldata", calldata.clone()).unwrap();
+        fs::write("./solidity/solidity-calldata.calldata", calldata.clone()).unwrap();
         let s = solidity_verifiers::utils::get_formatted_calldata(calldata.clone());
-        fs::write("./examples/solidity-calldata.inputs", s.join(",\n")).expect("");
+        fs::write("./solidity/solidity-calldata.inputs", s.join(",\n")).expect("");
     }
 }

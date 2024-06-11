@@ -9,7 +9,7 @@ package-lock.json
 *.sym
 
 # generated contracts at test time
-generated
+solidity
 *.sol
 *.calldata
 *.inputs
