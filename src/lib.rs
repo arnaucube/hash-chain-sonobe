@@ -15,27 +15,19 @@ mod tests {
     use ark_bn254::{constraints::GVar, Bn254, Fr, G1Projective as G1};
     use ark_grumpkin::{constraints::GVar as GVar2, Projective as G2};
 
-    use ark_crypto_primitives::snark::SNARK;
-    use ark_groth16::{Groth16, ProvingKey, VerifyingKey as G16VerifierKey};
-    use ark_poly_commit::kzg10::VerifierKey as KZGVerifierKey;
+    use ark_groth16::Groth16;
 
     use ark_ff::{BigInteger, BigInteger256, PrimeField};
-    use ark_std::Zero;
 
     use std::path::PathBuf;
     use std::rc::Rc;
     use std::time::Instant;
 
     use folding_schemes::{
-        commitment::{
-            kzg::{ProverKey as KZGProverKey, KZG},
-            pedersen::Pedersen,
-            CommitmentScheme,
-        },
+        commitment::{kzg::KZG, pedersen::Pedersen},
         folding::nova::{
             decider_eth::{prepare_calldata, Decider as DeciderEth},
-            decider_eth_circuit::DeciderEthCircuit,
-            get_r1cs, Nova, ProverParams, VerifierParams,
+            Nova, PreprocessorParam,
         },
         frontend::{circom::CircomFCircuit, FCircuit},
         transcript::poseidon::poseidon_canonical_config,
@@ -47,85 +39,13 @@ mod tests {
         NovaCycleFoldVerifierKey,
     };
 
-    // This method computes the Nova's Prover & Verifier parameters for the example.
-    // Warning: this method is only for testing purposes. For a real world use case those parameters
-    // should be generated carefully (both the PoseidonConfig and the PedersenParams).
-    #[allow(clippy::type_complexity)]
-    fn init_nova_ivc_params<FC: FCircuit<Fr>>(
-        F_circuit: FC,
-    ) -> (
-        ProverParams<G1, G2, KZG<'static, Bn254>, Pedersen<G2>>,
-        VerifierParams<G1, G2>,
-        KZGVerifierKey<Bn254>,
-    ) {
-        let mut rng = ark_std::test_rng();
-        let poseidon_config = poseidon_canonical_config::<Fr>();
-
-        // get the CM & CF_CM len
-        let (r1cs, cf_r1cs) =
-            get_r1cs::<G1, GVar, G2, GVar2, FC>(&poseidon_config, F_circuit).unwrap();
-        let cs_len = r1cs.A.n_rows;
-        let cf_cs_len = cf_r1cs.A.n_rows;
-
-        // let (pedersen_params, _) = Pedersen::<G1>::setup(&mut rng, cf_len).unwrap();
-        let (kzg_pk, kzg_vk): (KZGProverKey<G1>, KZGVerifierKey<Bn254>) =
-            KZG::<Bn254>::setup(&mut rng, cs_len).unwrap();
-        let (cf_pedersen_params, _) = Pedersen::<G2>::setup(&mut rng, cf_cs_len).unwrap();
-
-        let fs_prover_params = ProverParams::<G1, G2, KZG<Bn254>, Pedersen<G2>> {
-            poseidon_config: poseidon_config.clone(),
-            cs_params: kzg_pk.clone(),
-            cf_cs_params: cf_pedersen_params,
-        };
-        let fs_verifier_params = VerifierParams::<G1, G2> {
-            poseidon_config: poseidon_config.clone(),
-            r1cs,
-            cf_r1cs,
-        };
-        (fs_prover_params, fs_verifier_params, kzg_vk)
-    }
-
-    /// Initializes Nova parameters and DeciderEth parameters. Only for test purposes.
-    #[allow(clippy::type_complexity)]
-    fn init_ivc_and_decider_params<FC: FCircuit<Fr>>(
-        f_circuit: FC,
-    ) -> (
-        ProverParams<G1, G2, KZG<'static, Bn254>, Pedersen<G2>>,
-        KZGVerifierKey<Bn254>,
-        ProvingKey<Bn254>,
-        G16VerifierKey<Bn254>,
-    ) {
-        let mut rng = rand::rngs::OsRng;
-        let start = Instant::now();
-        let (fs_prover_params, _, kzg_vk) = init_nova_ivc_params::<FC>(f_circuit.clone());
-        println!("generated Nova folding params: {:?}", start.elapsed());
-
-        pub type NOVA<FC> = Nova<G1, GVar, G2, GVar2, FC, KZG<'static, Bn254>, Pedersen<G2>>;
-        let z_0 = vec![Fr::zero(); f_circuit.state_len()];
-        let nova = NOVA::init(&fs_prover_params, f_circuit, z_0.clone()).unwrap();
-
-        let decider_circuit =
-            DeciderEthCircuit::<G1, GVar, G2, GVar2, KZG<Bn254>, Pedersen<G2>>::from_nova::<FC>(
-                nova.clone(),
-            )
-            .unwrap();
-        let start = Instant::now();
-        let (g16_pk, g16_vk) =
-            Groth16::<Bn254>::circuit_specific_setup(decider_circuit.clone(), &mut rng).unwrap();
-        println!(
-            "generated G16 (Decider circuit) params: {:?}",
-            start.elapsed()
-        );
-        (fs_prover_params, kzg_vk, g16_pk, g16_vk)
-    }
-
     fn f_vec_to_bits<F: PrimeField>(v: Vec<F>) -> Vec<bool> {
         v.iter()
             .map(|v_i| {
                 if v_i.is_one() {
                     return true;
                 }
-                return false;
+                false
             })
             .collect()
     }
@@ -142,7 +62,7 @@ mod tests {
         let bits = bi.to_bits_le();
         Ok(bits
             .iter()
-            .map(|&e| if e == true { F::one() } else { F::zero() })
+            .map(|&e| if e { F::one() } else { F::zero() })
             .collect())
     }
 
@@ -201,12 +121,10 @@ mod tests {
         assert!(cs.is_satisfied().unwrap());
         // ----------------
 
-        let (fs_prover_params, kzg_vk, g16_pk, g16_vk) =
-            init_ivc_and_decider_params::<CircomFCircuit<Fr>>(f_circuit.clone());
-
-        pub type NOVA =
-            Nova<G1, GVar, G2, GVar2, CircomFCircuit<Fr>, KZG<'static, Bn254>, Pedersen<G2>>;
-        pub type DECIDERETH_FCircuit = DeciderEth<
+        // define type aliases to avoid writting the whole type each time
+        pub type N =
+            Nova<G1, GVar, G2, GVar2, CircomFCircuit<Fr>, KZG<'static, Bn254>, Pedersen<G2>, false>;
+        pub type D = DeciderEth<
             G1,
             GVar,
             G2,
@@ -215,15 +133,30 @@ mod tests {
             KZG<'static, Bn254>,
             Pedersen<G2>,
             Groth16<Bn254>,
-            NOVA,
+            N,
         >;
 
+        let poseidon_config = poseidon_canonical_config::<Fr>();
+        let mut rng = rand::rngs::OsRng;
+
+        // prepare the Nova prover & verifier params
+        let nova_preprocess_params = PreprocessorParam::new(poseidon_config, f_circuit.clone());
+        let start = Instant::now();
+        let nova_params = N::preprocess(&mut rng, &nova_preprocess_params).unwrap();
+        println!("Nova params generated: {:?}", start.elapsed());
+
         // initialize the folding scheme engine, in our case we use Nova
-        let mut nova = NOVA::init(&fs_prover_params, f_circuit.clone(), z_0.clone()).unwrap();
+        let mut nova = N::init(&nova_params, f_circuit.clone(), z_0.clone()).unwrap();
+
+        // prepare the Decider prover & verifier params
+        let start = Instant::now();
+        let (decider_pp, decider_vp) = D::preprocess(&mut rng, &nova_params, nova.clone()).unwrap();
+        println!("Decider params generated: {:?}", start.elapsed());
+
         // run n steps of the folding iteration
         for _ in 0..n_steps {
             let start = Instant::now();
-            nova.prove_step(vec![]).unwrap();
+            nova.prove_step(rng, vec![], None).unwrap();
             println!("Nova::prove_step {}: {:?}", nova.i, start.elapsed());
         }
 
@@ -240,14 +173,9 @@ mod tests {
         // Sanity check
         // The following lines contain a sanity check that checks the IVC proof (before going into
         // the zkSNARK proof)
-        let verifier_params = VerifierParams::<G1, G2> {
-            poseidon_config: nova.poseidon_config.clone(),
-            r1cs: nova.clone().r1cs,
-            cf_r1cs: nova.clone().cf_r1cs,
-        };
         let (running_instance, incoming_instance, cyclefold_instance) = nova.instances();
-        NOVA::verify(
-            verifier_params,
+        N::verify(
+            nova_params.1, // Nova's verifier params
             z_0,
             nova.z_i.clone(),
             nova.i,
@@ -260,16 +188,11 @@ mod tests {
 
         let rng = rand::rngs::OsRng;
         let start = Instant::now();
-        let proof = DECIDERETH_FCircuit::prove(
-            (g16_pk, fs_prover_params.cs_params.clone()),
-            rng,
-            nova.clone(),
-        )
-        .unwrap();
+        let proof = D::prove(rng, decider_pp, nova.clone()).unwrap();
         println!("generated Decider proof: {:?}", start.elapsed());
 
-        let verified = DECIDERETH_FCircuit::verify(
-            (g16_vk.clone(), kzg_vk.clone()),
+        let verified = D::verify(
+            decider_vp.clone(),
             nova.i,
             nova.z_0.clone(),
             nova.z_i.clone(),
@@ -297,8 +220,7 @@ mod tests {
         .unwrap();
 
         // prepare the setup params for the solidity verifier
-        let nova_cyclefold_vk =
-            NovaCycleFoldVerifierKey::from((g16_vk, kzg_vk, f_circuit.state_len()));
+        let nova_cyclefold_vk = NovaCycleFoldVerifierKey::from((decider_vp, f_circuit.state_len()));
 
         // generate the solidity code
         let decider_solidity_code = get_decider_template_for_cyclefold_decider(nova_cyclefold_vk);
