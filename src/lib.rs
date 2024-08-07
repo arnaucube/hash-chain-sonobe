@@ -3,5 +3,6 @@
 #![allow(clippy::upper_case_acronyms)]
 
 mod keccak_chain;
+mod naive_approach_sha_chain;
 mod sha_chain;
 mod utils;

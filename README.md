@@ -30,3 +30,10 @@ Note: the Circom variant currently has a bit of extra overhead since at each fol
 ### Repo structure
 - the Circom circuit (that defines the keccak-chain) to be folded is defined at [./circuit/keccak-chain.circom](https://github.com/arnaucube/hash-chain-sonobe/blob/main/circuit/keccak-chain.circom)
 - the logic to fold the circuit using Sonobe is defined at [src/{sha_chain, keccak_chain}.rs](https://github.com/arnaucube/hash-chain-sonobe/blob/main/src)
+
+
+
+## Other
+Additionally there is the `src/naive_approach_sha_chain.rs` file, which mimics the amount of hashes computed by the `src/sha_chain.rs` file, but instead of folding it does it by building a big circuit that does all the hashes at once, as we would do before folding existed.
+
+To run it: `cargo test --release naive_approach_sha_chain -- --nocapture`

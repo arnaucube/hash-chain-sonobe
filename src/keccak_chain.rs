@@ -136,7 +136,11 @@ mod tests {
                 start.elapsed()
             );
         }
-        println!("Nova's all steps time: {:?}", start_full.elapsed());
+        println!(
+            "Nova's all {} steps time: {:?}",
+            n_steps,
+            start_full.elapsed()
+        );
 
         // perform the hash chain natively in rust (which uses a rust Keccak256 library)
         let mut z_i_native = z_0.clone();

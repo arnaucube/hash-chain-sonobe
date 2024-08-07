@@ -44,10 +44,12 @@ mod tests {
 
     /// Test circuit to be folded
     #[derive(Clone, Copy, Debug)]
-    pub struct SHA256FoldStepCircuit<F: PrimeField> {
+    pub struct SHA256FoldStepCircuit<F: PrimeField, const HASHES_PER_STEP: usize> {
         _f: PhantomData<F>,
     }
-    impl<F: PrimeField> FCircuit<F> for SHA256FoldStepCircuit<F> {
+    impl<F: PrimeField, const HASHES_PER_STEP: usize> FCircuit<F>
+        for SHA256FoldStepCircuit<F, HASHES_PER_STEP>
+    {
         type Params = ();
         fn new(_params: Self::Params) -> Result<Self, Error> {
             Ok(Self { _f: PhantomData })
@@ -66,12 +68,15 @@ mod tests {
             z_i: Vec<F>,
             _external_inputs: Vec<F>,
         ) -> Result<Vec<F>, Error> {
-            let b = f_vec_to_bytes(z_i.to_vec());
-            let mut sha256 = Sha256::default();
-            sha256.update(b);
-            let z_i1 = sha256.finalize().to_vec();
+            let mut b = f_vec_to_bytes(z_i.to_vec());
 
-            bytes_to_f_vec(z_i1.to_vec())
+            for _ in 0..HASHES_PER_STEP {
+                let mut sha256 = Sha256::default();
+                sha256.update(b);
+                b = sha256.finalize().to_vec();
+            }
+
+            bytes_to_f_vec(b.to_vec()) // z_{i+1}
         }
         fn generate_step_constraints(
             &self,
@@ -80,14 +85,18 @@ mod tests {
             z_i: Vec<FpVar<F>>,
             _external_inputs: Vec<FpVar<F>>,
         ) -> Result<Vec<FpVar<F>>, SynthesisError> {
-            let mut sha256_var = Sha256Gadget::default();
-            let z_i_u8: Vec<UInt8<F>> = z_i
+            let mut b: Vec<UInt8<F>> = z_i
                 .iter()
                 .map(|f| UInt8::<F>::from_bits_le(&f.to_bits_le().unwrap()[..8]))
                 .collect::<Vec<_>>();
-            sha256_var.update(&z_i_u8).unwrap();
-            let z_i1_u8 = sha256_var.finalize()?.to_bytes()?;
-            let z_i1: Vec<FpVar<F>> = z_i1_u8
+
+            for _ in 0..HASHES_PER_STEP {
+                let mut sha256_var = Sha256Gadget::default();
+                sha256_var.update(&b).unwrap();
+                b = sha256_var.finalize()?.to_bytes()?;
+            }
+
+            let z_i1: Vec<FpVar<F>> = b
                 .iter()
                 .map(|e| {
                     let bits = e.to_bits_le().unwrap();
@@ -102,14 +111,16 @@ mod tests {
     #[test]
     fn full_flow() {
         // set how many steps of folding we want to compute
-        let n_steps = 100;
+        const N_STEPS: usize = 100;
+        const HASHES_PER_STEP: usize = 10;
+        println!("running Nova folding scheme on SHA256FoldStepCircuit, with N_STEPS={}, HASHES_PER_STEP={}. Total hashes = {}", N_STEPS, HASHES_PER_STEP, N_STEPS* HASHES_PER_STEP);
 
         // set the initial state
         // let z_0_aux: Vec<u32> = vec![0_u32; 32 * 8];
         let z_0_aux: Vec<u8> = vec![0_u8; 32];
         let z_0: Vec<Fr> = z_0_aux.iter().map(|v| Fr::from(*v)).collect::<Vec<Fr>>();
 
-        let f_circuit = SHA256FoldStepCircuit::<Fr>::new(()).unwrap();
+        let f_circuit = SHA256FoldStepCircuit::<Fr, HASHES_PER_STEP>::new(()).unwrap();
 
         // ----------------
         // Sanity check
@@ -128,6 +139,10 @@ mod tests {
         assert_eq!(z_1_var.value().unwrap(), z_1_native);
         // check that the constraint system is satisfied
         assert!(cs.is_satisfied().unwrap());
+        println!(
+            "number of constraints of a single instantiation of the SHA256FoldStepCircuit: {}",
+            cs.num_constraints()
+        );
         // ----------------
 
         // define type aliases to avoid writting the whole type each time
@@ -136,7 +151,7 @@ mod tests {
             GVar,
             G2,
             GVar2,
-            SHA256FoldStepCircuit<Fr>,
+            SHA256FoldStepCircuit<Fr, HASHES_PER_STEP>,
             KZG<'static, Bn254>,
             Pedersen<G2>,
             false,
@@ -146,7 +161,7 @@ mod tests {
             GVar,
             G2,
             GVar2,
-            SHA256FoldStepCircuit<Fr>,
+            SHA256FoldStepCircuit<Fr, HASHES_PER_STEP>,
             KZG<'static, Bn254>,
             Pedersen<G2>,
             Groth16<Bn254>,
@@ -172,7 +187,7 @@ mod tests {
 
         // run n steps of the folding iteration
         let start_full = Instant::now();
-        for _ in 0..n_steps {
+        for _ in 0..N_STEPS {
             let start = Instant::now();
             nova.prove_step(rng, vec![], None).unwrap();
             println!(
@@ -181,7 +196,11 @@ mod tests {
                 start.elapsed()
             );
         }
-        println!("Nova's all steps time: {:?}", start_full.elapsed());
+        println!(
+            "Nova's all {} steps time: {:?}",
+            N_STEPS,
+            start_full.elapsed()
+        );
 
         // ----------------
         // Sanity check
