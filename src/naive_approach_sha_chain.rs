@@ -85,7 +85,7 @@ mod tests {
     fn full_flow() {
         // set how many iterations of the SHA256ChainCircuit circuit internal loop we want to
         // compute
-        const N_STEPS: usize = 50;
+        const N_STEPS: usize = 100;
         const HASHES_PER_STEP: usize = 10;
         println!("running the 'naive' SHA256ChainCircuit, with N_STEPS={}, HASHES_PER_STEP={}. Total hashes = {}", N_STEPS, HASHES_PER_STEP, N_STEPS* HASHES_PER_STEP);
 
@@ -105,8 +105,8 @@ mod tests {
         let cs = ConstraintSystem::<Fr>::new_ref();
         circuit.clone().generate_constraints(cs.clone()).unwrap();
         println!(
-            "number of constraints of the (naive) SHA256ChainCircuit with N={} hash iterations: {}",
-            N_STEPS,
+            "number of constraints of the (naive) SHA256ChainCircuit with N_STEPS*HASHES_PER_STEP={} sha256 hashes in total: {}",
+            N_STEPS * HASHES_PER_STEP,
             cs.num_constraints()
         );
 

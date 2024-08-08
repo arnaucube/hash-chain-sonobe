@@ -57,7 +57,7 @@ mod tests {
     #[test]
     fn full_flow() {
         // set how many steps of folding we want to compute
-        let n_steps = 1000;
+        let n_steps = 50;
 
         // set the initial state
         let z_0_aux: Vec<u32> = vec![0_u32; 32 * 8];
@@ -93,8 +93,9 @@ mod tests {
         assert!(cs.is_satisfied().unwrap());
         // ----------------
 
-        // define type aliases to avoid writting the whole type each time
-        pub type N =
+        // define type aliases for the FoldingScheme (FS) and Decider (D), to avoid writting the
+        // whole type each time
+        pub type FS =
             Nova<G1, GVar, G2, GVar2, CircomFCircuit<Fr>, KZG<'static, Bn254>, Pedersen<G2>, false>;
         pub type D = DeciderEth<
             G1,
@@ -105,7 +106,7 @@ mod tests {
             KZG<'static, Bn254>,
             Pedersen<G2>,
             Groth16<Bn254>,
-            N,
+            FS,
         >;
 
         let poseidon_config = poseidon_canonical_config::<Fr>();
@@ -114,16 +115,11 @@ mod tests {
         // prepare the Nova prover & verifier params
         let nova_preprocess_params = PreprocessorParam::new(poseidon_config, f_circuit.clone());
         let start = Instant::now();
-        let nova_params = N::preprocess(&mut rng, &nova_preprocess_params).unwrap();
+        let nova_params = FS::preprocess(&mut rng, &nova_preprocess_params).unwrap();
         println!("Nova params generated: {:?}", start.elapsed());
 
         // initialize the folding scheme engine, in our case we use Nova
-        let mut nova = N::init(&nova_params, f_circuit.clone(), z_0.clone()).unwrap();
-
-        // prepare the Decider prover & verifier params
-        let start = Instant::now();
-        let (decider_pp, decider_vp) = D::preprocess(&mut rng, &nova_params, nova.clone()).unwrap();
-        println!("Decider params generated: {:?}", start.elapsed());
+        let mut nova = FS::init(&nova_params, f_circuit.clone(), z_0.clone()).unwrap();
 
         // run n steps of the folding iteration
         let start_full = Instant::now();
@@ -145,7 +141,7 @@ mod tests {
         // perform the hash chain natively in rust (which uses a rust Keccak256 library)
         let mut z_i_native = z_0.clone();
         for i in 0..n_steps {
-            z_i_native = rust_native_step(i, z_i_native.clone(), vec![]).unwrap();
+            z_i_native = rust_native_step(i, z_i_native, vec![]).unwrap();
         }
         // check that the value of the last folding state (nova.z_i) computed through folding, is
         // equal to the natively computed hash using the rust_native_step method
@@ -156,8 +152,8 @@ mod tests {
         // The following lines contain a sanity check that checks the IVC proof (before going into
         // the zkSNARK proof)
         let (running_instance, incoming_instance, cyclefold_instance) = nova.instances();
-        N::verify(
-            nova_params.1, // Nova's verifier params
+        FS::verify(
+            nova_params.1.clone(), // Nova's verifier params
             z_0,
             nova.z_i.clone(),
             nova.i,
@@ -167,6 +163,11 @@ mod tests {
         )
         .unwrap();
         // ----------------
+
+        // prepare the Decider prover & verifier params
+        let start = Instant::now();
+        let (decider_pp, decider_vp) = D::preprocess(&mut rng, &nova_params, nova.clone()).unwrap();
+        println!("Decider params generated: {:?}", start.elapsed());
 
         let rng = rand::rngs::OsRng;
         let start = Instant::now();

@@ -145,8 +145,9 @@ mod tests {
         );
         // ----------------
 
-        // define type aliases to avoid writting the whole type each time
-        pub type N = Nova<
+        // define type aliases for the FoldingScheme (FS) and Decider (D), to avoid writting the
+        // whole type each time
+        pub type FS = Nova<
             G1,
             GVar,
             G2,
@@ -165,7 +166,7 @@ mod tests {
             KZG<'static, Bn254>,
             Pedersen<G2>,
             Groth16<Bn254>,
-            N,
+            FS,
         >;
 
         let poseidon_config = poseidon_canonical_config::<Fr>();
@@ -174,16 +175,11 @@ mod tests {
         // prepare the Nova prover & verifier params
         let nova_preprocess_params = PreprocessorParam::new(poseidon_config, f_circuit);
         let start = Instant::now();
-        let nova_params = N::preprocess(&mut rng, &nova_preprocess_params).unwrap();
+        let nova_params = FS::preprocess(&mut rng, &nova_preprocess_params).unwrap();
         println!("Nova params generated: {:?}", start.elapsed());
 
         // initialize the folding scheme engine, in our case we use Nova
-        let mut nova = N::init(&nova_params, f_circuit, z_0.clone()).unwrap();
-
-        // prepare the Decider prover & verifier params
-        let start = Instant::now();
-        let (decider_pp, decider_vp) = D::preprocess(&mut rng, &nova_params, nova.clone()).unwrap();
-        println!("Decider params generated: {:?}", start.elapsed());
+        let mut nova = FS::init(&nova_params, f_circuit, z_0.clone()).unwrap();
 
         // run n steps of the folding iteration
         let start_full = Instant::now();
@@ -207,8 +203,8 @@ mod tests {
         // The following lines contain a sanity check that checks the IVC proof (before going into
         // the zkSNARK proof)
         let (running_instance, incoming_instance, cyclefold_instance) = nova.instances();
-        N::verify(
-            nova_params.1, // Nova's verifier params
+        FS::verify(
+            nova_params.1.clone(), // Nova's verifier params
             z_0,
             nova.z_i.clone(),
             nova.i,
@@ -218,6 +214,11 @@ mod tests {
         )
         .unwrap();
         // ----------------
+
+        // prepare the Decider prover & verifier params
+        let start = Instant::now();
+        let (decider_pp, decider_vp) = D::preprocess(&mut rng, &nova_params, nova.clone()).unwrap();
+        println!("Decider params generated: {:?}", start.elapsed());
 
         let rng = rand::rngs::OsRng;
         let start = Instant::now();
