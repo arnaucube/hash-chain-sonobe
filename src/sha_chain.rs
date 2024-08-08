@@ -65,8 +65,8 @@ mod tests {
         fn step_native(
             &self,
             _i: usize,
-            z_i: Vec<F>,
-            _external_inputs: Vec<F>,
+            z_i: &[F],
+            _external_inputs: &[F],
         ) -> Result<Vec<F>, Error> {
             let mut b = f_vec_to_bytes(z_i.to_vec());
 
@@ -82,8 +82,8 @@ mod tests {
             &self,
             _cs: ConstraintSystemRef<F>,
             _i: usize,
-            z_i: Vec<FpVar<F>>,
-            _external_inputs: Vec<FpVar<F>>,
+            z_i: &[FpVar<F>],
+            _external_inputs: &[FpVar<F>],
         ) -> Result<Vec<FpVar<F>>, SynthesisError> {
             let mut b: Vec<UInt8<F>> = z_i
                 .iter()
@@ -132,10 +132,10 @@ mod tests {
         let cs = ConstraintSystem::<Fr>::new_ref();
         let z_0_var = Vec::<FpVar<Fr>>::new_witness(cs.clone(), || Ok(z_0.clone())).unwrap();
         let z_1_var = f_circuit
-            .generate_step_constraints(cs.clone(), 1, z_0_var, vec![])
+            .generate_step_constraints(cs.clone(), 1, &z_0_var, &[])
             .unwrap();
         // check z_1_var against the native z_1
-        let z_1_native = f_circuit.step_native(1, z_0.clone(), vec![]).unwrap();
+        let z_1_native = f_circuit.step_native(1, &z_0, &[]).unwrap();
         assert_eq!(z_1_var.value().unwrap(), z_1_native);
         // check that the constraint system is satisfied
         assert!(cs.is_satisfied().unwrap());

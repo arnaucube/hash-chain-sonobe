@@ -43,8 +43,8 @@ mod tests {
     use tiny_keccak::{Hasher, Keccak};
     fn rust_native_step<F: PrimeField>(
         _i: usize,
-        z_i: Vec<F>,
-        _external_inputs: Vec<F>,
+        z_i: &[F],
+        _external_inputs: &[F],
     ) -> Result<Vec<F>, Error> {
         let b = f_vec_bits_to_bytes(z_i.to_vec());
         let mut h = Keccak::v256();
@@ -84,10 +84,10 @@ mod tests {
         let cs = ConstraintSystem::<Fr>::new_ref();
         let z_0_var = Vec::<FpVar<Fr>>::new_witness(cs.clone(), || Ok(z_0.clone())).unwrap();
         let z_1_var = f_circuit
-            .generate_step_constraints(cs.clone(), 1, z_0_var, vec![])
+            .generate_step_constraints(cs.clone(), 1, &z_0_var, &[])
             .unwrap();
         // check z_1_var against the native z_1
-        let z_1_native = f_circuit.step_native(1, z_0.clone(), vec![]).unwrap();
+        let z_1_native = f_circuit.step_native(1, &z_0, &[]).unwrap();
         assert_eq!(z_1_var.value().unwrap(), z_1_native);
         // check that the constraint system is satisfied
         assert!(cs.is_satisfied().unwrap());
@@ -141,7 +141,7 @@ mod tests {
         // perform the hash chain natively in rust (which uses a rust Keccak256 library)
         let mut z_i_native = z_0.clone();
         for i in 0..n_steps {
-            z_i_native = rust_native_step(i, z_i_native, vec![]).unwrap();
+            z_i_native = rust_native_step(i, &z_i_native, &[]).unwrap();
         }
         // check that the value of the last folding state (nova.z_i) computed through folding, is
         // equal to the natively computed hash using the rust_native_step method
