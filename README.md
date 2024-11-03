@@ -13,10 +13,15 @@ For more info about Sonobe, check out [Sonobe's docs](https://privacy-scaling-ex
 
 ### Usage
 
-### sha_chain.rs (arkworks circuit)
+### poseidon_chain.rs (arkworks circuit)
+Proves a chain of Poseidon hashes, using the [arkworks/poseidon](https://github.com/arkworks-rs/crypto-primitives/blob/main/crypto-primitives/src/sponge/poseidon/constraints.rs) circuit, with [Nova](https://eprint.iacr.org/2021/370.pdf)+[CycleFold](https://eprint.iacr.org/2023/1192.pdf).
+
+- `cargo test --release poseidon_chain -- --nocapture`
+
+### sha_chain_offchain.rs (arkworks circuit)
 Proves a chain of SHA256 hashes, using the [arkworks/sha256](https://github.com/arkworks-rs/crypto-primitives/blob/main/crypto-primitives/src/crh/sha256/constraints.rs) circuit, with [Nova](https://eprint.iacr.org/2021/370.pdf)+[CycleFold](https://eprint.iacr.org/2023/1192.pdf).
 
-- `cargo test --release sha_chain -- --nocapture`
+- `cargo test --release sha_chain_offchain -- --nocapture`
 
 ### keccak_chain.rs (circom circuit)
 Proves a chain of keccak256 hashes, using the [vocdoni/keccak256-circom](https://github.com/vocdoni/keccak256-circom) circuit, with [Nova](https://eprint.iacr.org/2021/370.pdf)+[CycleFold](https://eprint.iacr.org/2023/1192.pdf).
@@ -29,11 +34,13 @@ Note: the Circom variant currently has a bit of extra overhead since at each fol
 
 ### Repo structure
 - the Circom circuit (that defines the keccak-chain) to be folded is defined at [./circuit/keccak-chain.circom](https://github.com/arnaucube/hash-chain-sonobe/blob/main/circuit/keccak-chain.circom)
-- the logic to fold the circuit using Sonobe is defined at [src/{sha_chain, keccak_chain}.rs](https://github.com/arnaucube/hash-chain-sonobe/blob/main/src)
+- the logic to fold the circuit using Sonobe is defined at [src/{poseidon_chain, sha_chain_{offchain, onchain}, keccak_chain}.rs](https://github.com/arnaucube/hash-chain-sonobe/blob/main/src)
 
 
 
 ## Other
-Additionally there is the `src/naive_approach_sha_chain.rs` file, which mimics the amount of hashes computed by the `src/sha_chain.rs` file, but instead of folding it does it by building a big circuit that does all the hashes at once, as we would do before folding existed.
+Additionally there is the `src/naive_approach_{poseidon,sha}_chain.rs` file, which mimics the amount of hashes computed by the `src/{poseidon,sha}_chain.rs` file, but instead of folding it does it by building a big circuit that does all the hashes at once, as we would do before folding existed.
 
-To run it: `cargo test --release naive_approach_sha_chain -- --nocapture`
+To run it:
+- `cargo test --release naive_approach_sha_chain -- --nocapture`
+- `cargo test --release naive_approach_poseidon_chain -- --nocapture`

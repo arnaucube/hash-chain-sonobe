@@ -2,6 +2,7 @@
 /// This example performs the full flow:
 /// - define the circuit to be folded
 /// - fold the circuit with Nova+CycleFold's IVC
+/// - verify the IVC proof
 /// - generate a DeciderEthCircuit final proof
 /// - generate the Solidity contract that verifies the proof
 /// - verify the proof in the EVM
@@ -60,8 +61,6 @@ mod tests {
         fn external_inputs_len(&self) -> usize {
             0
         }
-        // function to compute the next state of the folding via rust-native code (not Circom). Used to
-        // check the Circom values.
         fn step_native(
             &self,
             _i: usize,
@@ -176,6 +175,7 @@ mod tests {
         let nova_preprocess_params = PreprocessorParam::new(poseidon_config, f_circuit);
         let start = Instant::now();
         let nova_params = FS::preprocess(&mut rng, &nova_preprocess_params).unwrap();
+        let pp_hash = nova_params.1.pp_hash().unwrap();
         println!("Nova params generated: {:?}", start.elapsed());
 
         // initialize the folding scheme engine, in our case we use Nova
@@ -202,22 +202,17 @@ mod tests {
         // Sanity check
         // The following lines contain a sanity check that checks the IVC proof (before going into
         // the zkSNARK proof)
-        let (running_instance, incoming_instance, cyclefold_instance) = nova.instances();
+        let ivc_proof = nova.ivc_proof();
         FS::verify(
             nova_params.1.clone(), // Nova's verifier params
-            z_0,
-            nova.z_i.clone(),
-            nova.i,
-            running_instance,
-            incoming_instance,
-            cyclefold_instance,
+            ivc_proof,
         )
         .unwrap();
         // ----------------
 
         // prepare the Decider prover & verifier params
         let start = Instant::now();
-        let (decider_pp, decider_vp) = D::preprocess(&mut rng, &nova_params, nova.clone()).unwrap();
+        let (decider_pp, decider_vp) = D::preprocess(&mut rng, nova_params, nova.clone()).unwrap();
         println!("Decider params generated: {:?}", start.elapsed());
 
         let rng = rand::rngs::OsRng;
@@ -244,6 +239,7 @@ mod tests {
 
         let calldata: Vec<u8> = prepare_calldata(
             function_selector,
+            pp_hash,
             nova.i,
             nova.z_0,
             nova.z_i,
