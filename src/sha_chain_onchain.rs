@@ -27,9 +27,12 @@ mod tests {
 
     use folding_schemes::{
         commitment::{kzg::KZG, pedersen::Pedersen},
-        folding::nova::{
-            decider_eth::{prepare_calldata, Decider as DeciderEth},
-            Nova, PreprocessorParam,
+        folding::{
+            nova::{
+                decider_eth::{prepare_calldata, Decider as DeciderEth},
+                Nova, PreprocessorParam,
+            },
+            traits::CommittedInstanceOps,
         },
         frontend::FCircuit,
         transcript::poseidon::poseidon_canonical_config,
@@ -175,7 +178,6 @@ mod tests {
         let nova_preprocess_params = PreprocessorParam::new(poseidon_config, f_circuit);
         let start = Instant::now();
         let nova_params = FS::preprocess(&mut rng, &nova_preprocess_params).unwrap();
-        let pp_hash = nova_params.1.pp_hash().unwrap();
         println!("Nova params generated: {:?}", start.elapsed());
 
         // initialize the folding scheme engine, in our case we use Nova
@@ -225,8 +227,8 @@ mod tests {
             nova.i,
             nova.z_0.clone(),
             nova.z_i.clone(),
-            &nova.U_i,
-            &nova.u_i,
+            &nova.U_i.get_commitments(),
+            &nova.u_i.get_commitments(),
             &proof,
         )
         .unwrap();
@@ -239,7 +241,6 @@ mod tests {
 
         let calldata: Vec<u8> = prepare_calldata(
             function_selector,
-            pp_hash,
             nova.i,
             nova.z_0,
             nova.z_i,

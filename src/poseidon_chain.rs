@@ -96,7 +96,7 @@ mod tests {
 
         let poseidon_config = poseidon_canonical_config::<Fr>();
         let f_circuit =
-            PoseidonFoldStepCircuit::<Fr, HASHES_PER_STEP>::new(poseidon_config).unwrap();
+            PoseidonFoldStepCircuit::<Fr, HASHES_PER_STEP>::new(poseidon_config.clone()).unwrap();
 
         // ----------------
         // Sanity check
@@ -137,7 +137,8 @@ mod tests {
         let mut rng = rand::rngs::OsRng;
 
         // prepare the Nova prover & verifier params
-        let nova_preprocess_params = PreprocessorParam::new(poseidon_config, f_circuit.clone());
+        let nova_preprocess_params =
+            PreprocessorParam::new(poseidon_config.clone(), f_circuit.clone());
         let start = Instant::now();
         let nova_params = FS::preprocess(&mut rng, &nova_preprocess_params).unwrap();
         println!("Nova params generated: {:?}", start.elapsed());
