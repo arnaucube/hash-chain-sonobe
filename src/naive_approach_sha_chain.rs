@@ -15,7 +15,11 @@ mod tests {
     use ark_crypto_primitives::crh::sha256::{constraints::Sha256Gadget, digest::Digest, Sha256};
     use ark_r1cs_std::fields::fp::FpVar;
     use ark_r1cs_std::{alloc::AllocVar, eq::EqGadget};
-    use ark_r1cs_std::{bits::uint8::UInt8, boolean::Boolean, ToBitsGadget, ToBytesGadget};
+    use ark_r1cs_std::{
+        boolean::Boolean,
+        convert::{ToBitsGadget, ToBytesGadget},
+        uint8::UInt8,
+    };
     use ark_relations::r1cs::{
         ConstraintSynthesizer, ConstraintSystem, ConstraintSystemRef, SynthesisError,
     };
@@ -47,7 +51,7 @@ mod tests {
                 for _ in 0..HASHES_PER_STEP {
                     let mut sha256_var = Sha256Gadget::default();
                     sha256_var.update(&b).unwrap();
-                    b = sha256_var.finalize()?.to_bytes()?;
+                    b = sha256_var.finalize()?.to_bytes_le()?;
                 }
 
                 // update z_i = z_{i+1}
@@ -55,7 +59,7 @@ mod tests {
                     .iter()
                     .map(|e| {
                         let bits = e.to_bits_le().unwrap();
-                        Boolean::<F>::le_bits_to_fp_var(&bits).unwrap()
+                        Boolean::<F>::le_bits_to_fp(&bits).unwrap()
                     })
                     .collect();
             }

@@ -15,18 +15,15 @@ mod tests {
     use ark_crypto_primitives::sponge::{
         constraints::CryptographicSpongeVar,
         poseidon::{constraints::PoseidonSpongeVar, PoseidonConfig, PoseidonSponge},
-        Absorb, CryptographicSponge,
+        CryptographicSponge,
     };
     use ark_r1cs_std::fields::fp::FpVar;
     use ark_r1cs_std::{alloc::AllocVar, eq::EqGadget};
-    use ark_r1cs_std::{bits::uint8::UInt8, boolean::Boolean, ToBitsGadget, ToBytesGadget};
     use ark_relations::r1cs::{
         ConstraintSynthesizer, ConstraintSystem, ConstraintSystemRef, SynthesisError,
     };
 
     use folding_schemes::transcript::poseidon::poseidon_canonical_config;
-
-    use crate::utils::tests::*;
 
     /// Test circuit to be folded
     #[derive(Clone, Debug)]
@@ -66,9 +63,8 @@ mod tests {
         hashes_per_step: usize,
     ) -> Vec<Fr> {
         let mut z_i: Vec<Fr> = z_0.clone();
+        let mut sponge = PoseidonSponge::<Fr>::new(&poseidon_config);
         for _ in 0..n_steps {
-            let mut sponge = PoseidonSponge::<Fr>::new(&poseidon_config);
-
             for _ in 0..hashes_per_step {
                 sponge.absorb(&z_i);
                 z_i = sponge.squeeze_field_elements(1);
