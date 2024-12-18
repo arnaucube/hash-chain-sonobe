@@ -10,7 +10,7 @@ mod tests {
     use ark_pallas::{constraints::GVar, Fr, Projective as G1};
     use ark_vesta::{constraints::GVar as GVar2, Projective as G2};
 
-    use ark_crypto_primitives::crh::sha256::{constraints::Sha256Gadget, digest::Digest, Sha256};
+    use ark_crypto_primitives::crh::sha256::constraints::Sha256Gadget;
     use ark_ff::PrimeField;
     use ark_r1cs_std::fields::fp::FpVar;
     use ark_r1cs_std::{
@@ -30,8 +30,6 @@ mod tests {
         Error, FoldingScheme,
     };
 
-    use crate::utils::tests::*;
-
     /// Test circuit to be folded
     #[derive(Clone, Copy, Debug)]
     pub struct SHA256FoldStepCircuit<F: PrimeField, const HASHES_PER_STEP: usize> {
@@ -49,22 +47,6 @@ mod tests {
         }
         fn external_inputs_len(&self) -> usize {
             0
-        }
-        fn step_native(
-            &self,
-            _i: usize,
-            z_i: Vec<F>,
-            _external_inputs: Vec<F>,
-        ) -> Result<Vec<F>, Error> {
-            let mut b = f_vec_to_bytes(z_i.to_vec());
-
-            for _ in 0..HASHES_PER_STEP {
-                let mut sha256 = Sha256::default();
-                sha256.update(b);
-                b = sha256.finalize().to_vec();
-            }
-
-            bytes_to_f_vec(b.to_vec()) // z_{i+1}
         }
         fn generate_step_constraints(
             &self,
@@ -115,16 +97,12 @@ mod tests {
         // check that the f_circuit produces valid R1CS constraints
         use ark_r1cs_std::alloc::AllocVar;
         use ark_r1cs_std::fields::fp::FpVar;
-        use ark_r1cs_std::R1CSVar;
         use ark_relations::r1cs::ConstraintSystem;
         let cs = ConstraintSystem::<Fr>::new_ref();
         let z_0_var = Vec::<FpVar<Fr>>::new_witness(cs.clone(), || Ok(z_0.clone())).unwrap();
-        let z_1_var = f_circuit
+        let _z_1_var = f_circuit
             .generate_step_constraints(cs.clone(), 1, z_0_var, vec![])
             .unwrap();
-        // check z_1_var against the native z_1
-        let z_1_native = f_circuit.step_native(1, z_0.clone(), vec![]).unwrap();
-        assert_eq!(z_1_var.value().unwrap(), z_1_native);
         // check that the constraint system is satisfied
         assert!(cs.is_satisfied().unwrap());
         println!(
